@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	template "github.com/openshift/api/template/v1"
@@ -44,7 +44,7 @@ var (
 
 			// Convert to json first
 			jsonB, err := yaml.YAMLToJSON(yamlFile)
-			checkErr(err, fmt.Sprintf("Error trasnfoming yaml to json: \n%s", string(yamlFile)))
+			checkErr(err, fmt.Sprintf("Error transforming yaml to json: \n%s", string(yamlFile)))
 
 			err = json.Unmarshal(jsonB, &myTemplate)
 			checkErr(err, "Unable to marshal template")
@@ -71,7 +71,7 @@ var (
 				},
 				Templates: templates,
 				Values:    values,
-				Raw:       []*chart.File{{ Name: "values.yaml", Data: []byte(valuesAsByte) }},
+				Raw:       []*chart.File{{Name: "values.yaml", Data: []byte(valuesAsByte)}},
 			}
 
 			if myChart.Metadata.Name == "" {
@@ -96,8 +96,7 @@ func init() {
 
 func checkErr(err error, msg string) {
 	if err != nil {
-		fmt.Print(fmt.Errorf(msg + err.Error()))
-		os.Exit(1)
+		log.Fatalf(msg + err.Error())
 	}
 	return
 }
@@ -107,13 +106,134 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 	o := *objects
 
 	m := make(map[string][]byte)
-	seperator := []byte{'-', '-','-','\n'}
+	separator := []byte{'-', '-', '-', '\n'}
 
 	for _, v := range o {
 		var k8sR unstructured.Unstructured
-		err := json.Unmarshal(v.Raw, &k8sR)
+		err := json.Unmarshal([]byte(v.Raw), &k8sR)
 		if err != nil {
 			return fmt.Errorf(fmt.Sprintf("Failed to unmarshal Raw resource\n%v\n", v.Raw) + err.Error())
+		}
+
+		objectKind := k8sR.GetKind()
+		switch objectKind {
+		// ::: DeploymenyConfig Vs Deployment :::
+		case "DeploymentConfig":
+			log.Printf("Converting the object from: %s into 'Deployment'", k8sR.GetKind())
+			// ::: Change the apiVersion
+			log.Printf("Change the current apiVersion: %s ", k8sR.GetAPIVersion())
+			k8sR.SetAPIVersion("apps/v1")
+
+			// ::: Change the object kind
+			log.Printf("Change the current object type: %s ", k8sR.GetKind())
+			k8sR.SetKind("Deployment")
+
+			// ::: Delete the following entries:
+			// 		{"strategy": ["activeDeadlineSeconds":"1800","type":"rolling"]}
+			// 		and you can set the full path specifying all the fields: "spec","strategy" and so on
+			log.Printf("Remove the 'strategy' branch from the object: %s ", k8sR.GetKind())
+			myInterface, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec")
+			if err != nil {
+				return fmt.Errorf(fmt.Sprintf("\nFailed to parse the object %s with the following Error: ", k8sR.GetKind()) + err.Error())
+			}
+			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "strategy")
+
+			// call a function: to inject entry
+			// fmt.Printf("\n ::: DEBUG - the object BEFORE updates are applied :::::::::::: %s ", k8sR)
+			// errinjectEnvInDeployment := injectEnvInDeployment(k8sR)
+			// if errinjectEnvInDeployment != nil {
+			// 	return fmt.Errorf(fmt.Sprintf("\nFailed to inject container into object %s with the following Error: ", k8sR.GetKind()) + errinjectEnvInDeployment.Error())
+			// }
+			// fmt.Printf("\n ::: DEBUG - the object AFTER updates are applied :::::::::::: %s ", k8sR)
+
+		// ::: Route Vs Ingress :::
+		case "Route":
+			log.Printf("Converting the object from: %s into 'Ingress'", k8sR.GetKind())
+
+			// ::: GET the 'Service Name' from the source Route object
+			getTargetService, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "to")
+			if err != nil {
+				checkErr(err, "failed to get the 'service' name from the 'route' object")
+			}
+
+			var mTargetService = map[string]string{}
+			for k, v := range getTargetService.(map[string]interface{}) {
+				mTargetService[k] = fmt.Sprint(v)
+				// check if exist
+				_, ok := mTargetService["name"]
+				if ok {
+					log.Printf("::: Service Name = '%+v' \n", mTargetService["name"])
+				}
+			}
+
+			// ::: GET the 'Target Port' from the source Route object
+			getTargetPort, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "port")
+			if err != nil {
+				checkErr(err, "failed to get the 'target port' from the 'route' object")
+			}
+			var TargetPort (string)
+			for _, v := range getTargetPort.(map[string]interface{}) {
+				// extract port number from name- WARNING: it is a workaround to fix
+				re := regexp.MustCompile(`[-]?\d[\d,]*[\.]?[\d{2}]*`)
+				if !(re.MatchString(v.(string))) {
+					log.Fatalf("::: Error - failed to get the service port number from route obj definition")
+					// os.Exit(1)
+				}
+				log.Printf("::: Service Port = '%+v'\n", re.FindString(v.(string)))
+				TargetPort = fmt.Sprint(re.FindString(v.(string)))
+			}
+
+			// ::: "Ingress" template without specify the ingressClassName aimed to use the default set on the cluster if any
+			// ::: referring to: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
+			jsonIngressTemp := `{
+				"apiVersion": "networking.k8s.io/v1",
+				"kind": "Ingress",
+				"metadata": {
+					"name": "ingress-` + k8sR.GetName() + `",
+					"annotations": {
+						"nginx.ingress.kubernetes.io/rewrite-target": "/"
+					}
+				},
+				"spec": {
+					"rules": [
+						{
+							"http": {
+								"paths": [
+									{
+										"path": "/",
+										"pathType": "Prefix",
+										"backend": {
+											"service": {
+												"name": "` + mTargetService["name"] + `",
+												"port": {
+													"number": ` + TargetPort + `
+												}
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}`
+
+			// fmt.Printf("\n ::: DEBUG - the object k8sR before overwrite :::::::::::: %s\n", k8sR)
+
+			// ::: solution 1 - map[string]interface{} object
+			var IngressObjData map[string]interface{}
+			errIngressObjData := json.Unmarshal([]byte(jsonIngressTemp), &IngressObjData)
+			if errIngressObjData != nil {
+				checkErr(errIngressObjData, "::: Error - failed to get the 'service' name from the 'route' object")
+			}
+
+			// fmt.Printf("\n ::: DEBUG - the json map 'IngressObjData' is: %v\n", IngressObjData)
+
+			// ::: Set the new 'Object Kind'
+			k8sR.SetKind("Ingress")
+
+			// ::: Overwrite by the new map 'Ingress object'
+			k8sR.SetUnstructuredContent(IngressObjData)
 		}
 
 		labels := k8sR.GetLabels()
@@ -137,17 +257,17 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			return fmt.Errorf(fmt.Sprintf("Failed to marshal Raw resource back to YAML\n%v\n", updatedJSON) + err.Error())
 		}
 
-		if m[k8sR.GetKind()] == nil  {
+		if m[k8sR.GetKind()] == nil {
 			m[k8sR.GetKind()] = data
-
 		} else {
-			newdata:=append(m[k8sR.GetKind()],seperator...)
-			data=append(newdata,data...)
+			newdata := append(m[k8sR.GetKind()], separator...)
+			data = append(newdata, data...)
 			m[k8sR.GetKind()] = data
 		}
+
 	}
 
-    // Create chart using map
+	// Create chart using map
 	for k, v := range m {
 
 		name := "templates/" + strings.ToLower(k+".yaml")
@@ -199,3 +319,36 @@ func paramsToValues(param *[]template.Parameter, values *map[string]interface{},
 
 	return nil
 }
+
+// func injectEnvInDeployment(obj unstructured.Unstructured) error {
+
+// 	newEnvs := []interface{}{
+// 		map[string]interface{}{
+// 			"name": "TEST_POD_UID",
+// 			"valueFrom": map[string]interface{}{
+// 				"fieldRef": map[string]interface{}{
+// 					"fieldPath": "metadata.uid",
+// 				},
+// 			},
+// 		},
+// 	}
+// 	conInterface, _, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "template", "spec", "containers")
+// 	if err != nil {
+// 		checkErr(err, "failed to get containers")
+// 	}
+// 	containers, ok := conInterface.([]interface{})
+// 	if !ok {
+// 		return fmt.Errorf("expected of type %T but got %T", []interface{}{}, conInterface)
+// 	}
+// 	existingEnvInterface, _, err := unstructured.NestedFieldNoCopy(containers[0].(map[string]interface{}), "env")
+// 	if err != nil {
+// 		checkErr(err, "failed to get envs present in container")
+// 	}
+// 	var updatedEnvs []interface{}
+// 	if existingEnvInterface != nil {
+// 		updatedEnvs = append(existingEnvInterface.([]interface{}), newEnvs...)
+// 	} else {
+// 		updatedEnvs = newEnvs
+// 	}
+// 	return unstructured.SetNestedField(containers[0].(map[string]interface{}), updatedEnvs, "env")
+// }
