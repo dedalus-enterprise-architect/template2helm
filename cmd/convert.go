@@ -144,9 +144,44 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 				return fmt.Errorf(fmt.Sprintf("\nFailed to parse the object %s with the following Error: ", k8sR.GetKind()) + err.Error())
 			}
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "strategy")
-			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "selector")
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "test")
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "triggers")
+
+			// Get current selector
+
+			// existingSelectorInterface, _, err := unstructured.NestedFieldNoCopy(containers[0].(map[string]interface{}), "env")
+			// if err != nil {
+			// 	checkErr(err, "failed to get the 'selector' from DeploymentConfig object")
+			// }
+			// var mDCSelector map[string]interface{}
+			// mDCSelector := k8sR.UnstructuredContent()
+			// for k, v := range mDCSelector.(map[string]interface{}) {
+			// 	mTargetService[k] = fmt.Sprint(v)
+			// 	// check if exist
+			// 	_, ok := mTargetService["name"]
+			// 	if ok {
+			// 		log.Printf("::: Service Name = '%+v' \n", mTargetService["name"])
+			// 	}
+			// }
+
+			var fixedSelector = "${APP_NAME}"
+			newSelector := map[string]interface{}{
+				"matchLabels": map[string]interface{}{
+					"app":              fixedSelector,
+					"deploymentconfig": fixedSelector,
+				},
+			}
+			unstructured.SetNestedMap(myInterface.(map[string]interface{}), newSelector, "selector")
+
+			// --- solution B --- BEGIN
+			// newSelector := []interface{}{
+			// 	map[string]string{
+			// 		"app":              "fixedSelector",
+			// 		"deploymentconfig": "fixedSelector",
+			// 	},
+			// }
+			// unstructured.SetNestedStringMap(myInterface.(map[string]interface{}), newSelector, "selector", "matchLabels")
+			// --- solution B --- END
 
 			// call a function: to inject entry
 			// fmt.Printf("\n ::: DEBUG - the object BEFORE updates are applied :::::::::::: %s ", k8sR)
