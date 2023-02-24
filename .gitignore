@@ -1,3 +1,4 @@
 vendor/
 bin/
 template2helm
+.vscode/

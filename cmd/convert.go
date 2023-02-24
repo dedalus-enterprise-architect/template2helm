@@ -129,14 +129,24 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			k8sR.SetKind("Deployment")
 
 			// ::: Delete the following entries:
-			// 		{"strategy": ["activeDeadlineSeconds":"1800","type":"rolling"]}
-			// 		and you can set the full path specifying all the fields: "spec","strategy" and so on
+			//
+			// 		strategy:
+			// 			activeDeadlineSeconds: 1800
+			// 			type: "rolling"
+			//		selector:
+			//		test:
+			//		triggers:
+			//
+			// 	and might set the full path specifying all the fields: "spec","strategy" and so on
 			log.Printf("Remove the 'strategy' branch from the object: %s ", k8sR.GetKind())
 			myInterface, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec")
 			if err != nil {
 				return fmt.Errorf(fmt.Sprintf("\nFailed to parse the object %s with the following Error: ", k8sR.GetKind()) + err.Error())
 			}
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "strategy")
+			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "selector")
+			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "test")
+			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "triggers")
 
 			// call a function: to inject entry
 			// fmt.Printf("\n ::: DEBUG - the object BEFORE updates are applied :::::::::::: %s ", k8sR)
