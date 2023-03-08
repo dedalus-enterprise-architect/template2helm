@@ -147,49 +147,49 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "test")
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "triggers")
 
-			// Get current selector
-
-			// existingSelectorInterface, _, err := unstructured.NestedFieldNoCopy(containers[0].(map[string]interface{}), "env")
-			// if err != nil {
-			// 	checkErr(err, "failed to get the 'selector' from DeploymentConfig object")
-			// }
-			// var mDCSelector map[string]interface{}
-			// mDCSelector := k8sR.UnstructuredContent()
-			// for k, v := range mDCSelector.(map[string]interface{}) {
-			// 	mTargetService[k] = fmt.Sprint(v)
-			// 	// check if exist
-			// 	_, ok := mTargetService["name"]
-			// 	if ok {
-			// 		log.Printf("::: Service Name = '%+v' \n", mTargetService["name"])
-			// 	}
-			// }
-
-			var fixedSelector = "${APP_NAME}"
-			newSelector := map[string]interface{}{
-				"matchLabels": map[string]interface{}{
-					"app":              fixedSelector,
-					"deploymentconfig": fixedSelector,
-				},
+			//
+			// Get the original selector items tree
+			//
+			existingSelectorMatchLabels, isSelectorExist, err := unstructured.NestedMap(myInterface.(map[string]interface{}), "selector", "matchLabels")
+			if err != nil {
+				checkErr(err, "failed to get the 'selector.matchLabels' from DeploymentConfig object")
+			} else if isSelectorExist { // if already exist jump to the next case
+				log.Printf("Skipping the Selector because is appears as already configured = %s", existingSelectorMatchLabels)
+				break
 			}
-			unstructured.SetNestedMap(myInterface.(map[string]interface{}), newSelector, "selector")
 
-			// --- solution B --- BEGIN
-			// newSelector := []interface{}{
-			// 	map[string]string{
-			// 		"app":              "fixedSelector",
-			// 		"deploymentconfig": "fixedSelector",
-			// 	},
-			// }
-			// unstructured.SetNestedStringMap(myInterface.(map[string]interface{}), newSelector, "selector", "matchLabels")
-			// --- solution B --- END
+			existingSelectorInterface, isSelectorToUpdate, err := unstructured.NestedMap(myInterface.(map[string]interface{}), "selector")
+			if err != nil {
+				checkErr(err, "failed to get the 'selector' from DeploymentConfig object")
+			} else if isSelectorToUpdate {
+				log.Printf("Selector was found and its value is = %s", existingSelectorInterface)
 
-			// call a function: to inject entry
-			// fmt.Printf("\n ::: DEBUG - the object BEFORE updates are applied :::::::::::: %s ", k8sR)
-			// errinjectEnvInDeployment := injectEnvInDeployment(k8sR)
-			// if errinjectEnvInDeployment != nil {
-			// 	return fmt.Errorf(fmt.Sprintf("\nFailed to inject container into object %s with the following Error: ", k8sR.GetKind()) + errinjectEnvInDeployment.Error())
-			// }
-			// fmt.Printf("\n ::: DEBUG - the object AFTER updates are applied :::::::::::: %s ", k8sR)
+				// Clean the original items tree
+				unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "selector")
+				// Set the newest items tree
+				unstructured.SetNestedMap(myInterface.(map[string]interface{}), existingSelectorInterface, "selector", "matchLabels")
+
+				// var mSelectorKey = map[string]string{}
+				// for k, v := range existingSelectorInterface {
+				// 	mSelectorKey[k] = fmt.Sprint(v)
+				// 	log.Printf("::: Selector key = '%+v' \n", k)
+				// 	log.Printf("::: Selector value = '%+v' \n", mSelectorKey[k])
+				// }
+
+				// --- solution B --- BEGIN
+				// var fixedSelector = "${APP_NAME}"
+				// // updatedSelector := map[string]interface{}{
+				// // updatedSelector := []interface{}{
+				// updatedSelector := map[string]interface{}{
+				// 	// "matchLabels": []interface{}{
+				// 	"matchLabels": map[string]interface{}{
+				// 		// existingSelectorInterface,
+				// 		"app":              fixedSelector,
+				// 		"deploymentconfig": fixedSelector,
+				// 	},
+				// }
+				// unstructured.SetNestedStringMap(myInterface.(map[string]interface{}), updatedSelector, "selector", "matchLabels")
+			}
 
 		// ::: Route Vs Ingress :::
 		case "Route":
