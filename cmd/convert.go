@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	template "github.com/openshift/api/template/v1"
@@ -39,33 +38,33 @@ var (
 
 			yamlFile, err := ioutil.ReadFile(filepath.Clean(tplPath))
 			if err != nil {
-				return fmt.Errorf("Couldn't load template: %v", err)
+				return fmt.Errorf("::: Error - Couldn't load template: %v", err)
 			}
 
 			// Convert to json first
 			jsonB, err := yaml.YAMLToJSON(yamlFile)
-			checkErr(err, fmt.Sprintf("Error transforming yaml to json: \n%s", string(yamlFile)))
+			checkErr(err, fmt.Sprintf("::: Error - Error transforming yaml to json: \n%s", string(yamlFile)))
 
 			err = json.Unmarshal(jsonB, &myTemplate)
-			checkErr(err, "Unable to marshal template")
+			checkErr(err, "::: Error - Unable to marshal template")
 
 			// Convert myTemplate.Objects into individual files
 			var templates []*chart.File
 			err = objectToTemplate(&myTemplate.Objects, &myTemplate.ObjectLabels, &templates)
-			checkErr(err, "Failed object to template conversion")
+			checkErr(err, "::: Error - failed object to template conversion")
 
 			// Convert myTemplate.Parameters into a yaml string map
 			values := make(map[string]interface{})
 			err = paramsToValues(&myTemplate.Parameters, &values, &templates)
-			checkErr(err, "Failed parameter to value conversion")
+			checkErr(err, "::: Error - failed parameter to value conversion")
 
 			valuesAsByte, err := yaml.Marshal(values)
-			checkErr(err, "Failed converting values to YAML")
+			checkErr(err, "::: Error - failed converting values to YAML")
 
 			myChart := chart.Chart{
 				Metadata: &chart.Metadata{
 					Name:        myTemplate.ObjectMeta.Name,
-					Version:     "v0.0.1",
+					Version:     "v1.2.0",
 					Description: myTemplate.ObjectMeta.Annotations["description"],
 					Tags:        myTemplate.ObjectMeta.Annotations["tags"],
 				},
@@ -81,7 +80,7 @@ var (
 			}
 
 			err = chartutil.SaveDir(&myChart, chartPath)
-			checkErr(err, fmt.Sprintf("Failed to save chart %s", myChart.Metadata.Name))
+			checkErr(err, fmt.Sprintf("::: Error - failed to save chart %s", myChart.Metadata.Name))
 
 			return nil
 		},
@@ -98,7 +97,7 @@ func checkErr(err error, msg string) {
 	if err != nil {
 		log.Fatalf(msg + err.Error())
 	}
-	return
+	// return
 }
 
 // Convert the object list in the openshift template to a set of template files in the chart
@@ -108,24 +107,26 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 	m := make(map[string][]byte)
 	separator := []byte{'-', '-', '-', '\n'}
 
+	var mServiceObj = map[int]map[string]string{} // it is needed by object kind = service
+
 	for _, v := range o {
 		var k8sR unstructured.Unstructured
 		err := json.Unmarshal([]byte(v.Raw), &k8sR)
 		if err != nil {
-			return fmt.Errorf(fmt.Sprintf("Failed to unmarshal Raw resource\n%v\n", v.Raw) + err.Error())
+			return fmt.Errorf(fmt.Sprintf("::: Error - failed to unmarshal Raw resource\n%v\n", v.Raw) + err.Error())
 		}
 
 		objectKind := k8sR.GetKind()
 		switch objectKind {
-		// ::: DeploymenyConfig Vs Deployment :::
+		// ::: DeploymentConfig Vs Deployment :::
 		case "DeploymentConfig":
-			log.Printf("Converting the object from: %s into 'Deployment'", k8sR.GetKind())
+			log.Printf("::: INFO - Converting the object from: %s into 'Deployment'", k8sR.GetKind())
 			// ::: Change the apiVersion
-			log.Printf("Change the current apiVersion: %s ", k8sR.GetAPIVersion())
+			log.Printf("::: INFO - Change the current apiVersion: %s ", k8sR.GetAPIVersion())
 			k8sR.SetAPIVersion("apps/v1")
 
 			// ::: Change the object kind
-			log.Printf("Change the current object type: %s ", k8sR.GetKind())
+			log.Printf("::: INFO - Change the current object type: %s ", k8sR.GetKind())
 			k8sR.SetKind("Deployment")
 
 			// ::: Delete the following entries:
@@ -138,10 +139,10 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			//		triggers:
 			//
 			// 	and might set the full path specifying all the fields: "spec","strategy" and so on
-			log.Printf("Remove the 'strategy' branch from the object: %s ", k8sR.GetKind())
+			log.Printf("::: INFO - Remove the 'strategy' branch from the object: %s ", k8sR.GetKind())
 			myInterface, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec")
 			if err != nil {
-				return fmt.Errorf(fmt.Sprintf("\nFailed to parse the object %s with the following Error: ", k8sR.GetKind()) + err.Error())
+				return fmt.Errorf(fmt.Sprintf("\n::: Error - failed to parse the object %s with the following Error: ", k8sR.GetKind()) + err.Error())
 			}
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "strategy")
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "test")
@@ -152,7 +153,7 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			//
 			existingSelectorMatchLabels, isSelectorExist, err := unstructured.NestedMap(myInterface.(map[string]interface{}), "selector", "matchLabels")
 			if err != nil {
-				checkErr(err, "failed to get the 'selector.matchLabels' from DeploymentConfig object")
+				checkErr(err, "::: Error - failed to get the 'selector.matchLabels' from DeploymentConfig object")
 			} else if isSelectorExist { // if already exist jump to the next case
 				log.Printf("Skipping the Selector because is appears as already configured = %s", existingSelectorMatchLabels)
 				break
@@ -160,9 +161,9 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 			existingSelectorInterface, isSelectorToUpdate, err := unstructured.NestedMap(myInterface.(map[string]interface{}), "selector")
 			if err != nil {
-				checkErr(err, "failed to get the 'selector' from DeploymentConfig object")
+				checkErr(err, "::: Error - failed to get the 'selector' from DeploymentConfig object")
 			} else if isSelectorToUpdate {
-				log.Printf("Selector was found and its value is = %s", existingSelectorInterface)
+				log.Printf("::: INFO - Selector was found and its value is = %s", existingSelectorInterface)
 
 				// Clean the original items tree
 				unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "selector")
@@ -191,14 +192,41 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 				// unstructured.SetNestedStringMap(myInterface.(map[string]interface{}), updatedSelector, "selector", "matchLabels")
 			}
 
+		case "Service":
+
+			getServicePorts, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "ports")
+			if err != nil {
+				checkErr(err, "::: Error - failed to get the 'ports' name from the 'service' object")
+			}
+
+			for key, value := range getServicePorts.([]interface{}) {
+				// fmt.Printf("key = %+v\n value = %+v", key, value)
+				mServiceObj[key] = map[string]string{}
+				for kk, vv := range value.(map[string]interface{}) {
+					mServiceObj[key][kk] = fmt.Sprint(vv)
+					fmt.Printf("key: '%+v' and value: '%+v'", kk, vv)
+				}
+			}
+
+			// for i := range getServicePorts.(map[string]interface{}) {
+			// 	// for k, y := range getServicePorts.(map[string]interface{}) {
+
+			// 		fmt.Println(getServicePorts[i])
+			// 		// ServiceObj[i] = fmt.Sprint(y)
+			// 		// log.Printf("::: INFO - Service Port = '%+v'\n", v.(string))
+			// 		// fmt.Sprint(k)
+			// 		// fmt.Sprint(v)
+			// 	// }
+			// }
+
 		// ::: Route Vs Ingress :::
 		case "Route":
-			log.Printf("Converting the object from: %s into 'Ingress'", k8sR.GetKind())
+			log.Printf("::: INFO - Converting the object from: %s into 'Ingress'", k8sR.GetKind())
 
 			// ::: GET the 'Service Name' from the source Route object
 			getTargetService, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "to")
 			if err != nil {
-				checkErr(err, "failed to get the 'service' name from the 'route' object")
+				checkErr(err, "::: Error - failed to get the 'service' name from the 'route' object")
 			}
 
 			var mTargetService = map[string]string{}
@@ -207,26 +235,37 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 				// check if exist
 				_, ok := mTargetService["name"]
 				if ok {
-					log.Printf("::: Service Name = '%+v' \n", mTargetService["name"])
+					log.Printf("::: INFO - Service Name = '%+v' \n", mTargetService["name"])
 				}
 			}
 
 			// ::: GET the 'Target Port' from the source Route object
-			getTargetPort, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "port")
+			getTargetPort, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "port", "targetPort")
 			if err != nil {
-				checkErr(err, "failed to get the 'target port' from the 'route' object")
+				checkErr(err, "::: Error - failed to get the 'target port' from the 'route' object")
 			}
+
 			var TargetPort (string)
-			for _, v := range getTargetPort.(map[string]interface{}) {
-				// extract port number from name- WARNING: it is a workaround to fix
-				re := regexp.MustCompile(`[-]?\d[\d,]*[\.]?[\d{2}]*`)
-				if !(re.MatchString(v.(string))) {
-					log.Fatalf("::: Error - failed to get the service port number from route obj definition")
-					// os.Exit(1)
+			for _, srvObjV := range mServiceObj {
+
+				log.Printf("::: INFO - srvObjV = '%+v' \n", srvObjV)
+				if getTargetPort == srvObjV["name"] { // set the matched target port on Ingress object
+					log.Printf("::: INFO - targetPort = '%+v' \n", srvObjV["targetPort"])
+					TargetPort = fmt.Sprint(srvObjV["targetPort"])
+					break
 				}
-				log.Printf("::: Service Port = '%+v'\n", re.FindString(v.(string)))
-				TargetPort = fmt.Sprint(re.FindString(v.(string)))
 			}
+
+			// extract port number from name- WARNING: it is a workaround to fix
+			// for _, v := range getTargetPort.(string) {
+			// 	re := regexp.MustCompile(`[-]?\d[\d,]*[\.]?[\d{2}]*`)
+			// 	if !(re.MatchString(v.(string))) {
+			// 		log.Fatalf("::: Error - failed to get the service port number from route obj definition")
+			// 		// os.Exit(1)
+			// 	}
+			// 	log.Printf("::: INFO - Service Port = '%+v'\n", re.FindString(v.(string)))
+			// 	TargetPort = fmt.Sprint(re.FindString(v.(string)))
+			// }
 
 			// ::: "Ingress" template without specify the ingressClassName aimed to use the default set on the cluster if any
 			// ::: referring to: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
@@ -269,7 +308,7 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			var IngressObjData map[string]interface{}
 			errIngressObjData := json.Unmarshal([]byte(jsonIngressTemp), &IngressObjData)
 			if errIngressObjData != nil {
-				checkErr(errIngressObjData, "::: Error - failed to get the 'service' name from the 'route' object")
+				checkErr(errIngressObjData, fmt.Sprintf("::: Error - failed to get the 'service name': %s from the 'route' object\n", mTargetService["name"]))
 			}
 
 			// fmt.Printf("\n ::: DEBUG - the json map 'IngressObjData' is: %v\n", IngressObjData)
@@ -293,13 +332,13 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 		updatedJSON, err := k8sR.MarshalJSON()
 		if err != nil {
-			return fmt.Errorf(fmt.Sprintf("Failed to marshal Unstructured record to JSON\n%v\n", k8sR) + err.Error())
+			return fmt.Errorf(fmt.Sprintf("::: Error - failed to marshal Unstructured record to JSON\n%v\n", k8sR) + err.Error())
 		}
 
-		log.Printf("Creating a template for object %s", k8sR.GetKind())
+		log.Printf("::: INFO - Creating a template for object %s", k8sR.GetKind())
 		data, err := yaml.JSONToYAML(updatedJSON)
 		if err != nil {
-			return fmt.Errorf(fmt.Sprintf("Failed to marshal Raw resource back to YAML\n%v\n", updatedJSON) + err.Error())
+			return fmt.Errorf(fmt.Sprintf("::: Error - failed to marshal Raw resource back to YAML\n%v\n", updatedJSON) + err.Error())
 		}
 
 		if m[k8sR.GetKind()] == nil {
@@ -335,7 +374,7 @@ func paramsToValues(param *[]template.Parameter, values *map[string]interface{},
 
 	for _, pm := range p {
 		name := strings.ToLower(pm.Name)
-		log.Printf("Convert parameter %s to value .%s", pm.Name, name)
+		log.Printf("::: INFO - Convert parameter %s to value .%s", pm.Name, name)
 
 		for i, tf := range t {
 			// Search and replace ${PARAM} with {{ .Values.param }}
