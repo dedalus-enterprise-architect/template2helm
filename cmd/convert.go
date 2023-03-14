@@ -218,7 +218,7 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 		// ::: Route Vs Ingress :::
 		case "Route":
-			log.Printf("::: INFO - Route - Converting the object from: %s into 'Ingress'", k8sR.GetKind())
+			log.Printf("::: INFO - Route - converting the object from: %s into 'Ingress'", k8sR.GetKind())
 
 			// ::: GET the 'Service Name' from the source Route object
 			getTargetService, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "to")
@@ -365,7 +365,7 @@ func paramsToValues(param *[]template.Parameter, values *map[string]interface{},
 
 	for _, pm := range p {
 		name := strings.ToLower(pm.Name)
-		log.Printf("::: INFO - Convert parameter %s to value .%s", pm.Name, name)
+		log.Printf("::: INFO - convert parameter %s to value .%s", pm.Name, name)
 
 		for i, tf := range t {
 			// Search and replace ${PARAM} with {{ .Values.param }}
