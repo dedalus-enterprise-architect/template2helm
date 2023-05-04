@@ -64,9 +64,11 @@ var (
 			myChart := chart.Chart{
 				Metadata: &chart.Metadata{
 					Name:        myTemplate.ObjectMeta.Name,
-					Version:     "v1.2.0",
+					APIVersion:  "v2",
+					Version:     myTemplate.ObjectMeta.Annotations["appversion"],
+					AppVersion:  myTemplate.ObjectMeta.Annotations["appversion"],
 					Description: myTemplate.ObjectMeta.Annotations["description"],
-					Tags:        myTemplate.ObjectMeta.Annotations["tags"],
+					// Tags:        myTemplate.ObjectMeta.Annotations["tags"],
 				},
 				Templates: templates,
 				Values:    values,
@@ -77,6 +79,25 @@ var (
 				ext := filepath.Ext(tplPath)
 				name := filepath.Base(string(tplPath))[0 : len(filepath.Base(string(tplPath)))-len(ext)]
 				myChart.Metadata.Name = name
+			}
+
+			if myChart.Metadata.Version == "" {
+				if myChart.Values["app_version"] != nil {
+					myChart.Metadata.Version = fmt.Sprint(myChart.Values["app_version"])
+				} else {
+					myChart.Metadata.Version = "v0.0.1"
+				}
+				log.Printf("::: INFO - Setting the Chart 'Version': %s", myChart.Metadata.Version)
+			}
+
+			if myChart.Metadata.AppVersion == "" {
+				myChart.Metadata.AppVersion = fmt.Sprint(myChart.Values["app_version"])
+				if myChart.Values["app_version"] != nil {
+					myChart.Metadata.AppVersion = fmt.Sprint(myChart.Values["app_version"])
+				} else {
+					myChart.Metadata.AppVersion = "v0.0.1"
+				}
+				log.Printf("::: INFO - Setting the Chart 'AppVersion': %s", myChart.Metadata.AppVersion)
 			}
 
 			err = chartutil.SaveDir(&myChart, chartPath)
@@ -201,7 +222,7 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 				mServiceObj[key] = map[string]string{}
 				for kk, vv := range value.(map[string]interface{}) {
 					mServiceObj[key][kk] = fmt.Sprint(vv)
-					fmt.Printf("key: '%+v' and value: '%+v'", kk, vv)
+					// fmt.Printf("key: '%+v' and value: '%+v'", kk, vv)
 				}
 			}
 
