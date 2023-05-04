@@ -6,7 +6,19 @@ Template2Helm is a go utility that converts OpenShift templates into Helm charts
 
 ## Installation
 
-Installing is very simple. Simply download the proper binary from our latest [release](https://github.com/redhat-cop/template2helm/releases), and put it on your `$PATH`.
+Installing is very simple. Simply download the proper binary from our latest [release](https://github.com/dedalus-enterprise-architect/template2helm/releases), and put it on your `$PATH`.
+
+### Features
+
+* the APIVersion is set to __v2__
+
+* both the Chart _version_ and the _appVersion_ are set to the first match among the following directives:
+
+    * the key: "__appversion__" into the template _annotations_
+
+    * the variable: "__APP_VERSION__" into the template _Parameters_
+
+    * the fixed value: "v0.0.1"
 
 ## Usage
 

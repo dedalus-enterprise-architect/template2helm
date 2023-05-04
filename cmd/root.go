@@ -10,8 +10,8 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "template2helm",
 		Short: "Template2helm converts an OpenShift Template into a Helm Chart.",
-		Long: `Template2helm converts an OpenShift Template into a Helm Chart.
-      For more info, check out https://github.com/redhat-cop/template2helm`,
+		Long: `This is a customization of the Template2helm project which converts an OpenShift Template into a Helm Chart.
+      For more info, check out https://github.com/dedalus-enterprise-architect/template2helm`,
 	}
 )
 
