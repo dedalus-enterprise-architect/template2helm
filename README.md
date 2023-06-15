@@ -12,19 +12,19 @@ Installing is very simple. Simply download the proper binary from our latest [re
 
 * the APIVersion is set to __v2__
 
-* both the Chart _version_ and the _appVersion_ are set to the first match among the following directives:
+* both the Chart _version_ and the *appVersion* are set to the first match among the following directives:
 
-    * the key: "__appversion__" into the template _annotations_
+  * the key: "__appversion__" into the template *annotations*
 
-    * the variable: "__APP_VERSION__" into the template _Parameters_
+  * the variable: "__APP_VERSION__" into the template *Parameters*
 
-    * the fixed value: "v0.0.1"
+  * the fixed value: "v0.0.1"
 
 ## Usage
 
 template2helm has one primary function, `convert`. It can be used like so to convert an OpenShift template to a Helm chart.
 
-```
+```bash
 template2helm convert --template ./examples/slack-notify-job-template.yml --chart ~/tmp/charts
 ```
 

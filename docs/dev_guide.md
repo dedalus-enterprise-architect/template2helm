@@ -4,7 +4,7 @@ We encourage contributions to this project! We follow a fairly standard forking 
 
 In general, the requirements to contribute to this project are as follows:
 
-- A [Go 1.12](https://golang.org/dl/) enviornment
+- A [Go 1.12](https://golang.org/dl/) environment
 - [yq](https://pypi.org/project/yq/)
 - (optional) A kubernetes cluster like [minikube](https://kubernetes.io/docs/tasks/tools/install-minikube/)
 
@@ -12,10 +12,11 @@ In general, the requirements to contribute to this project are as follows:
 
 The default target in the makefile will build the project binary in the local directory. From there you can manually test it.
 
-```
-$ make
+```bash
+make
 
-$ ./template2helm
+./template2helm
+
 Template2helm converts an OpenShift Template into a Helm Chart.
       For more info, check out https://github.com/redhat-cop/template2helm
 
@@ -37,15 +38,15 @@ Use "template2helm [command] --help" for more information about a command.
 
 There is some automated test coverage in the libraries. You can run all tests with:
 
-```
-$ make test_e2e
+```bash
+make test_e2e
 ```
 
 ## Cutting Releases
 
 We use a [GitHub Actions workflow](.github/workflows/release.yml) to automate creating releases of our project. It triggers by creating and pushing a new tag to the main repo that uses [semantic versioning](https://semver.org/).
 
-```
+```bash
 # Create a new tag for the release
 git tag -a <version> -m "Release <version>"
 git push -u upstream <version>
