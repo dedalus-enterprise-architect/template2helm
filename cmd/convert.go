@@ -107,11 +107,11 @@ var (
 			checkErr(err, fmt.Sprintf("::: ERROR - failed to save chart %s", myChart.Metadata.Name))
 
 			// :::
-			// :: Ingress ::: adding the helm chart template source code because which is not conformance with the object type
+			// :: OPTIONAL - adding the helm chart template about the objects which are not compliants with the object kind
 			// :::
-			//
-			object2HelmTemplate(&myChart, "/templates/ingress.yaml", "/templates/ingress.yaml")
 
+			// Ingress Objects
+			object2HelmTemplate(&myChart, "/templates/ingress.yaml", "/templates/ingress.yaml")
 			return nil
 		},
 	}
@@ -130,36 +130,37 @@ func checkErr(err error, msg string) {
 	// return
 }
 
-func object2HelmTemplate(myChart *chart.Chart, srcObjectName string, targetObjectName string) {
+func object2HelmTemplate(myChart *chart.Chart, srcObjectName string, targetObjectName string) error {
 
 	objFileSrc, err := os.ReadFile(filepath.Clean(chartPath + myChart.ChartFullPath() + srcObjectName))
 	if err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - Couldn't load the Ingress object: %v", err))
+		// checkErr(err, fmt.Sprintf("::: ERROR - Couldn't load the Ingress object: %v", err))
+		log.Printf("::: WARNING - Couldn't load the Ingress object:\n %v", err)
 	}
 
 	objFile, err := os.OpenFile(filepath.Clean(chartPath+myChart.ChartFullPath()+targetObjectName), os.O_WRONLY, 0644)
 	if err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - Couldn't load the Ingress object: %v", err))
+		log.Printf("::: ERROR - Couldn't load the Ingress object: %v", err)
 	}
 
 	// write line on top of the file
 	if _, err := objFile.WriteString(`{{ if not (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints") }}` + "\n"); err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName))
+		log.Printf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName)
 	}
 	// write the whole original file
 	if _, err := objFile.Write(objFileSrc); err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName))
+		log.Printf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName)
 	}
 	// write line on bottom of the file
 	if _, err := objFile.WriteString(`{{ end }}` + "\n"); err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName))
+		log.Printf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName)
 	}
 	// closing the files
 	if err := objFile.Close(); err != nil {
-		checkErr(err, fmt.Sprintf("::: ERROR - failed to save the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName))
+		log.Printf("::: ERROR - failed to save the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName)
 	}
 
-	// return
+	return nil
 }
 
 // Convert the object list in the openshift template to a set of template files in the chart
