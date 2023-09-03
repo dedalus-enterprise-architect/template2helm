@@ -261,9 +261,10 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 			for key, value := range getServicePorts.([]interface{}) {
 				// fmt.Printf("key = %+v\n value = %+v", key, value)
-				mServiceObj[key] = map[string]string{}
+				keyy := key + len(mServiceObj)
+				mServiceObj[keyy] = map[string]string{}
 				for kk, vv := range value.(map[string]interface{}) {
-					mServiceObj[key][kk] = fmt.Sprint(vv)
+					mServiceObj[keyy][kk] = fmt.Sprint(vv)
 					// fmt.Printf("key: '%+v' and value: '%+v'", kk, vv)
 				}
 			}
