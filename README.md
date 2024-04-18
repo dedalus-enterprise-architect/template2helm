@@ -4,21 +4,33 @@ Template2Helm is a go utility that converts OpenShift templates into Helm charts
 
 *ATTENTION:* this is a forked project customized by the EA Team @Dedalus
 
+## Maintainers
+
+- Claudio Prato (<claudio.prato@dedalus.eu>)
+
 ## Installation
 
 Installing is very simple. Simply download the proper binary from our latest [release](https://github.com/dedalus-enterprise-architect/template2helm/releases), and put it on your `$PATH`.
 
 ### Features
 
-* the APIVersion is set to __v2__
+- the APIVersion is set to __v2__
 
-* both the Chart _version_ and the *appVersion* are set to the first match among the following directives:
+- both the Chart *version* and the *appVersion* are set to the first match among the following directives:
 
-  * the key: "__appversion__" into the template *annotations*
+  - the key: "__appversion__" into the template *annotations*
 
-  * the variable: "__APP_VERSION__" into the template *Parameters*
+  - the variable: "__APP_VERSION__" into the template *Parameters*
 
-  * the fixed value: "v0.0.1"
+  - the fixed value: "v0.0.1"
+
+- set the annotation: "reloader.stakater.com/auto" on Deployment object
+
+- keep the original *route* object
+
+- create a generic definition of an *ingress* starting from the original *route*
+
+- check the annotation: *reloader.stakater.com/auto*
 
 ## Usage
 

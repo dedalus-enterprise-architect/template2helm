@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -26,8 +25,9 @@ const (
 )
 
 var (
-	tplPath   string
-	chartPath string
+	tplPath            string
+	chartPath          string
+	is_bRouteObj_exist bool
 
 	convertCmd = &cobra.Command{
 		Use:   "convert",
@@ -37,7 +37,7 @@ var (
 
 			var myTemplate template.Template
 
-			yamlFile, err := ioutil.ReadFile(filepath.Clean(tplPath))
+			yamlFile, err := os.ReadFile(filepath.Clean(tplPath))
 			if err != nil {
 				return fmt.Errorf("::: ERROR - Couldn't load template: %v", err)
 			}
@@ -110,8 +110,11 @@ var (
 			// :: OPTIONAL - adding the helm chart template about the objects which are not compliants with the object kind
 			// :::
 
-			// Ingress Objects
-			object2HelmTemplate(&myChart, "/templates/ingress.yaml", "/templates/ingress.yaml")
+			// skip the Ingress Objects if it doesn't exist
+			if is_bRouteObj_exist {
+				addCondition2HelmObj(&myChart, "/templates/route.yaml", "/templates/route.yaml")
+				addCondition2HelmObj(&myChart, "/templates/ingress.yaml", "/templates/ingress.yaml")
+			}
 			return nil
 		},
 	}
@@ -130,21 +133,28 @@ func checkErr(err error, msg string) {
 	// return
 }
 
-func object2HelmTemplate(myChart *chart.Chart, srcObjectName string, targetObjectName string) error {
+func addCondition2HelmObj(myChart *chart.Chart, srcObjectName string, targetObjectName string) error {
+
+	// get the object kind: route or ingress
+	objKindMatch := strings.TrimSuffix(filepath.Base(srcObjectName), filepath.Ext(srcObjectName))
+	strCapabilities := map[string]string{
+		"route":   "if",
+		"ingress": "if not",
+	}
 
 	objFileSrc, err := os.ReadFile(filepath.Clean(chartPath + myChart.ChartFullPath() + srcObjectName))
 	if err != nil {
 		// checkErr(err, fmt.Sprintf("::: ERROR - Couldn't load the Ingress object: %v", err))
-		log.Printf("::: WARNING - Couldn't load the Ingress object:\n %v", err)
+		log.Printf("::: WARNING - Couldn't load the %s object:\n %v", objKindMatch, err)
 	}
 
 	objFile, err := os.OpenFile(filepath.Clean(chartPath+myChart.ChartFullPath()+targetObjectName), os.O_WRONLY, 0644)
 	if err != nil {
-		log.Printf("::: ERROR - Couldn't load the Ingress object: %v", err)
+		log.Printf("::: ERROR - Couldn't load the %s object: %v", objKindMatch, err)
 	}
 
 	// write line on top of the file
-	if _, err := objFile.WriteString(`{{ if not (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints") }}` + "\n"); err != nil {
+	if _, err := objFile.WriteString(`{{ ` + strCapabilities[objKindMatch] + ` (.Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints") }}` + "\n"); err != nil {
 		log.Printf("::: ERROR - failed to add line to the chart file: %s", chartPath+myChart.ChartFullPath()+targetObjectName)
 	}
 	// write the whole original file
@@ -163,13 +173,46 @@ func object2HelmTemplate(myChart *chart.Chart, srcObjectName string, targetObjec
 	return nil
 }
 
+func processObject(k8sR *unstructured.Unstructured, templateLabels *map[string]string, m map[string][]byte) (map[string][]byte, error) {
+
+	separator := []byte{'-', '-', '-', '\n'}
+
+	labels := k8sR.GetLabels()
+	if labels == nil {
+		k8sR.SetLabels(*templateLabels)
+	} else {
+		for key, value := range *templateLabels {
+			labels[key] = value
+		}
+		k8sR.SetLabels(labels)
+	}
+
+	updatedJSON, err := k8sR.MarshalJSON()
+	if err != nil {
+		return m, fmt.Errorf(fmt.Sprintf("::: ERROR - failed to marshal Unstructured record to JSON\n%v\n", k8sR) + err.Error())
+	}
+
+	log.Printf("::: INFO - Creating a template for object %s", k8sR.GetKind())
+	data, err := yaml.JSONToYAML(updatedJSON)
+	if err != nil {
+		return m, fmt.Errorf(fmt.Sprintf("::: ERROR - failed to marshal Raw resource back to YAML\n%v\n", updatedJSON) + err.Error())
+	}
+
+	if m[k8sR.GetKind()] == nil {
+		m[k8sR.GetKind()] = data
+	} else {
+		newdata := append(m[k8sR.GetKind()], separator...)
+		data = append(newdata, data...)
+		m[k8sR.GetKind()] = data
+	}
+
+	return m, nil
+}
+
 // Convert the object list in the openshift template to a set of template files in the chart
 func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[string]string, templates *[]*chart.File) error {
 	o := *objects
-
 	m := make(map[string][]byte)
-	separator := []byte{'-', '-', '-', '\n'}
-
 	var mServiceObj = map[int]map[string]string{} // it is needed by object kind = service
 
 	for _, v := range o {
@@ -182,7 +225,7 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 		objectKind := k8sR.GetKind()
 		switch objectKind {
 		// ::: DeploymentConfig Vs Deployment :::
-		case "DeploymentConfig":
+		case "DeploymentConfig", "Deployment":
 			log.Printf("::: INFO - Deployment - converting the object from: %s into 'Deployment'", k8sR.GetKind())
 			// ::: Change the apiVersion
 			log.Printf("::: INFO - Deployment - change the current apiVersion: %s ", k8sR.GetAPIVersion())
@@ -212,7 +255,23 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 			unstructured.RemoveNestedField(myInterface.(map[string]interface{}), "triggers")
 
 			//
-			// Get the original selector items tree
+			// Processing the metadata.annotations
+			//
+			annotations, isAnnStakaterExist, err := unstructured.NestedStringMap(k8sR.Object, "metadata", "annotations")
+			if err != nil {
+				return fmt.Errorf("::: ERROR - Deployment - failed to get 'annotations' from the DeploymentConfig object: %v", err)
+			}
+			if !isAnnStakaterExist {
+				annotations = make(map[string]string)
+			}
+			annotations["reloader.stakater.com/auto"] = "true"
+			err = unstructured.SetNestedStringMap(k8sR.Object, annotations, "metadata", "annotations")
+			if err != nil {
+				return fmt.Errorf("::: ERROR - Deployment - failed to set 'annotations' on the Deployment object: %v", err)
+			}
+
+			//
+			// Processing the Selector items
 			//
 			existingSelectorMatchLabels, isSelectorExist, err := unstructured.NestedMap(myInterface.(map[string]interface{}), "selector", "matchLabels")
 			if err != nil {
@@ -282,7 +341,16 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 		// ::: Route Vs Ingress :::
 		case "Route":
-			log.Printf("::: INFO - Route - converting the object from: %s into 'Ingress'", k8sR.GetKind())
+			log.Printf("::: INFO - Route - keep the original object definition: %s", k8sR.GetKind())
+			m, err = processObject(&k8sR, templateLabels, m)
+			if err != nil {
+				return err
+			}
+
+			log.Printf("::: INFO - Route - creating the Ingress object starting from the: %s", k8sR.GetKind())
+
+			// Salva una copia dell'oggetto Route originale
+			// origRoute := k8sR.DeepCopy()
 
 			// ::: GET the 'Service Name' from the source Route object
 			getTargetService, _, err := unstructured.NestedFieldNoCopy(k8sR.Object, "spec", "to")
@@ -373,35 +441,12 @@ func objectToTemplate(objects *[]runtime.RawExtension, templateLabels *map[strin
 
 			// ::: Overwrite by the new map 'Ingress object'
 			k8sR.SetUnstructuredContent(IngressObjData)
+			is_bRouteObj_exist = true
 		}
 
-		labels := k8sR.GetLabels()
-		if labels == nil {
-			k8sR.SetLabels(*templateLabels)
-		} else {
-			for key, value := range *templateLabels {
-				labels[key] = value
-			}
-			k8sR.SetLabels(labels)
-		}
-
-		updatedJSON, err := k8sR.MarshalJSON()
+		m, err = processObject(&k8sR, templateLabels, m)
 		if err != nil {
-			return fmt.Errorf(fmt.Sprintf("::: ERROR - failed to marshal Unstructured record to JSON\n%v\n", k8sR) + err.Error())
-		}
-
-		log.Printf("::: INFO - Creating a template for object %s", k8sR.GetKind())
-		data, err := yaml.JSONToYAML(updatedJSON)
-		if err != nil {
-			return fmt.Errorf(fmt.Sprintf("::: ERROR - failed to marshal Raw resource back to YAML\n%v\n", updatedJSON) + err.Error())
-		}
-
-		if m[k8sR.GetKind()] == nil {
-			m[k8sR.GetKind()] = data
-		} else {
-			newdata := append(m[k8sR.GetKind()], separator...)
-			data = append(newdata, data...)
-			m[k8sR.GetKind()] = data
+			return err
 		}
 
 	}
